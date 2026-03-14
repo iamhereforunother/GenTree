@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Генеалогическое древо — Продвинутое</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+:root{
+  --bg: linear-gradient(150deg,#07111a 0%,#0b1a26 100%);
+  --accent: #ffffff;
+  --muted: rgba(255,255,255,0.62);
+  --card-bg: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  --card-shadow: 0 18px 50px rgba(2,6,12,0.55);
+  --line: rgba(255,255,255,0.20);
+  --line-hi: rgba(255,255,255,0.84);
+  --mn-dot: rgba(255,255,255,0.36);
+  --radius-lg: 22px;
+  --radius-md: 14px;
+  --glass-strong: rgba(255,255,255,0.06);
+  --btn-bg: rgba(255,255,255,0.04);
+  --input-bg: rgba(255,255,255,0.03);
+  --btn-foreground: var(--accent);
+  --btn-black-bg: #0f1724;
+  --btn-black-fg: #ffffff;
+  --toast-bg: var(--accent);
+  --toast-fg: #0f1724;
+}
+[data-theme="light"]{
+  --bg: linear-gradient(160deg,#f6f8fb 0%,#eef3fb 100%);
+  --accent: #0f1724;
+  --muted: #475569;
+  --card-bg: #ffffff;
+  --card-shadow: 0 10px 30px rgba(15,23,42,0.06);
+  --line: rgba(15,23,42,0.14);
+  --line-hi: rgba(15,23,42,0.72);
+  --mn-dot: rgba(15,23,42,0.28);
+  --btn-bg: #ffffff;
+  --input-bg: #f5f7fa;
+  --btn-foreground: #0f1724;
+  --btn-black-bg: #0f1724;
+  --btn-black-fg: #ffffff;
+  --toast-bg: #0f1724;
+  --toast-fg: #ffffff;
+}
+*{box-sizing:border-box;font-family:'Nunito Sans',system-ui,sans-serif;}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--accent);-webkit-font-smoothing:antialiased;overflow:hidden;overscroll-behavior:none;}
+.app{position:relative;height:100vh;width:100vw;}
+.canvas{position:absolute;inset:0;cursor:grab;overflow:hidden;touch-action:none;}
+.canvas:active{cursor:grabbing}
+#zoom-layer{position:absolute;left:0;top:0;width:0;height:0;overflow:visible;transform-origin:0 0; z-index:20;}
+.header{
+  position:fixed;left:18px;top:18px;right:18px;z-index:220;
+  backdrop-filter:blur(18px) saturate(1.08);
+  background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+  border:1px solid var(--glass-strong);padding:14px 18px;border-radius:calc(var(--radius-lg) + 6px);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+.header-left, .header-right {display:flex;gap:12px;align-items:center;}
+.small{font-size:13px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.btn{padding:9px 12px;border-radius:12px;border:1px solid transparent;background:var(--btn-bg);
+  color:var(--btn-foreground);cursor:pointer;font-weight:700;font-size:13px;transition:all .2s;
+  box-shadow:0 6px 18px rgba(2,6,12,0.18);backdrop-filter:blur(6px);white-space:nowrap;user-select:none;}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(2,6,12,0.22)}
+.btn:active{transform:scale(.98)}
+.btn-danger{color:#ef6b6b}
+.btn-ghost{background:transparent;border:1px solid var(--glass-strong);padding:8px 10px;border-radius:10px;box-shadow:none;}
+.btn-black{background:var(--btn-black-bg);color:var(--btn-black-fg);border:1px solid rgba(0,0,0,0.12)}
+.card{position:absolute;width:260px;padding:18px;border-radius:var(--radius-lg);
+  background:var(--card-bg);border:1px solid var(--glass-strong);backdrop-filter:blur(18px) saturate(1.03);
+  text-align:center;cursor:grab;box-shadow:var(--card-shadow);user-select:none;touch-action:none;
+  transition: left 0.5s cubic-bezier(0.4, 0, 0.2, 1), top 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s, transform 0.2s;}
+.card:active{cursor:grabbing}
+.card.filtered { opacity: 0; pointer-events: none; transform: scale(0.9); }
+.card.single-active { outline: 3px solid #4a90e2; transform: scale(1.03); }
+.card .name{font-size:17px;font-weight:800;line-height:1.2;margin-bottom:6px;color:var(--accent)}
+.card .meta{font-size:13px;color:var(--muted);line-height:1.45}
+.card .rod{font-weight:800;color:var(--accent);opacity:.42;font-size:11px;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px}
+
+.person-anchor{position:absolute;width:32px;height:32px;border-radius:50%;background:transparent;pointer-events:auto;z-index:50;cursor:crosshair;display:flex;align-items:center;justify-content:center;touch-action:none;}
+.anchor-top { top:-16px; left:50%; transform:translateX(-50%); }
+.anchor-bottom { bottom:-16px; left:50%; transform:translateX(-50%); }
+.anchor-left { left:-16px; top:50%; transform:translateY(-50%); }
+.anchor-right { right:-16px; top:50%; transform:translateY(-50%); }
+.anchor-dot{width:14px;height:14px;border-radius:50%;background:var(--accent);opacity:0;transition:opacity .12s,transform .12s}
+.card:hover .anchor-dot{opacity:.76;transform:scale(1.18)}
+
+.marriage-node{position:absolute;width:34px;height:34px;pointer-events:auto;cursor:crosshair;z-index:40;display:flex;align-items:center;justify-content:center;border-radius:50%;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border:1px solid var(--glass-strong); transition: left 0.5s, top 0.5s, opacity 0.4s; touch-action:none;}
+.marriage-node.single-active { outline: 3px solid #4a90e2; }
+.marriage-node.filtered { opacity: 0; pointer-events: none; }
+.marriage-dot{width:12px;height:12px;border-radius:50%;background:var(--mn-dot);transition:transform .15s,background .15s}
+.marriage-node:hover .marriage-dot{transform:scale(1.6);background:var(--accent)}
+#svg{position:absolute;left:0;top:0;width:100%;height:100%;z-index:10;pointer-events:none;overflow:visible}
+.ln-hit{fill:none;stroke:transparent;stroke-width:24px;pointer-events:stroke;cursor:pointer}
+path.ln{fill:none;stroke-linecap:round;stroke-linejoin:round; transition: stroke-width 0.2s, stroke 0.2s;}
+path.ln-mar{stroke:var(--line);stroke-width:2px;stroke-dasharray:7 5}
+path.ln-kin{stroke:var(--line);stroke-width:2px}
+path.ln-pre{stroke:var(--accent);stroke-dasharray:5 4;stroke-width:2px;opacity:.6}
+path.ln-hi {stroke:var(--line-hi)!important;stroke-width:3.5px!important}
+.ctx{position:fixed;z-index:210;background:var(--card-bg);border:1px solid var(--glass-strong);padding:16px;border-radius:var(--radius-lg);backdrop-filter:blur(22px);box-shadow:0 30px 60px rgba(2,6,12,.45);display:none;width:320px;}
+.ctx form{display:flex;flex-direction:column;gap:10px}
+.inp{padding:10px 14px;border-radius:var(--radius-md);border:1px solid var(--glass-strong);background:var(--input-bg);color:var(--accent);outline:none;font-size:14px}
+.inp:focus{border-color:rgba(255,255,255,.22);background:rgba(128,128,128,0.05)}
+.lbl{font-size:14px;font-weight:800;color:var(--muted)}
+.lctx{position:fixed;z-index:205;background:var(--card-bg);border:1px solid var(--glass-strong);padding:10px;border-radius:var(--radius-md);backdrop-filter:blur(18px);box-shadow:0 18px 40px rgba(2,6,12,.36);display:none;flex-direction:column;gap:6px;min-width:170px}
+.lctx-hdr{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+.lctx button{padding:9px 12px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--accent);cursor:pointer;font-weight:700;font-size:13px;text-align:left}
+.lctx .del-btn:hover{background:rgba(239,107,107,.12);color:#ef6b6b}
+.toast{position:fixed;left:50%;transform:translateX(-50%) translateY(-6px);top:86px;background:var(--toast-bg);color:var(--toast-fg);padding:10px 18px;border-radius:12px;font-weight:800;font-size:13px;z-index:215;box-shadow:0 12px 40px rgba(2,6,12,.28);opacity:0;transition:.3s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.filter-group { display: flex; align-items: center; gap: 8px; background: var(--btn-bg); padding: 4px 12px; border-radius: 12px; border: 1px solid var(--glass-strong); }
+.filter-group select { background: transparent; border: none; color: var(--accent); outline: none; font-weight: 600; font-size: 13px; cursor: pointer; }
+.filter-group select option { background: var(--btn-black-bg); color: #fff; }
+
+@media (max-width: 768px) {
+  .header { flex-direction: column; top: 10px; left: 10px; right: 10px; padding: 12px; border-radius: 18px; gap: 8px; align-items: stretch; }
+  .header-left, .header-right { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; justify-content: flex-start; }
+  .header-left::-webkit-scrollbar, .header-right::-webkit-scrollbar { display: none; }
+  .btn { padding: 8px 12px; font-size: 12px; }
+  .ctx, .lctx {
+    position: fixed !important; top: 50% !important; left: 50% !important;
+    transform: translate(-50%, -50%) !important; width: 90vw !important; max-width: 320px;
+  }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="header-left">
+      <div class="small">Генеалогия</div>
+      <button class="btn btn-black" id="btn-add">Добавить</button>
+      <div class="filter-group">
+        <select id="rod-filter" title="Фильтр по роду"><option value="all">Все ветви</option></select>
+        <label style="font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer;">
+          <input type="checkbox" id="show-spouses" checked /> С супругами
+        </label>
+      </div>
+      <button class="btn" id="btn-align">⊞ Выровнять</button>
+      <button class="btn" id="btn-export">Сохранить</button>
+      <button class="btn" id="btn-import">Загрузить</button>
+      <button class="btn" id="btn-center">Подогнать</button>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-ghost" id="btn-undo" disabled>↶ Отменить</button>
+      <button class="btn btn-ghost" id="btn-redo" disabled>↷ Вернуть</button>
+      <button class="btn btn-ghost" id="btn-theme">Тема</button>
+    </div>
+  </div>
+
+  <div class="canvas" id="canvas">
+    <svg id="svg"><g id="svg-g"></g></svg>
+    <div id="zoom-layer"></div>
+  </div>
+
+  <div class="ctx" id="ctx">
+    <form id="addForm">
+      <div class="lbl" id="ctx-title">Новый человек</div>
+      <input class="inp" name="id" type="hidden"/>
+      <input class="inp" name="first" placeholder="Имя" required/>
+      <input class="inp" name="last"  placeholder="Фамилия"/>
+      <select class="inp" name="gender">
+        <option value="">Пол...</option>
+        <option value="M">Мужской</option>
+        <option value="F">Женский</option>
+      </select>
+      <input class="inp" name="dob"   placeholder="Год рождения"/>
+      <input class="inp" name="city"  placeholder="Город"/>
+      <input class="inp" name="rod"   placeholder="Род"/>
+      
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+        <button type="button" class="btn btn-ghost" id="ctx-single" style="display:none; border-color:var(--line-hi);">🔗 Указать ребенка</button>
+        <div style="display:flex; justify-content:space-between; gap:8px;">
+          <button type="button" class="btn btn-danger" id="ctx-del" style="display:none">Удалить</button>
+          <div style="display:flex; gap:8px; margin-left:auto;">
+            <button type="button" class="btn" id="ctx-cancel">Отмена</button>
+            <button class="btn" type="submit" style="background:var(--accent);color:var(--bg)">Сохранить</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="lctx" id="lctx">
+    <div class="lctx-hdr">Связь</div>
+    <button class="del-btn" id="lctx-del">Удалить связь</button>
+    <button id="lctx-can">Отмена</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+<input id="file-input" type="file" accept="application/json" style="display:none"/>
+<script>
+const CW = 260, CH = 105, GX = 60, GY = 120, R = 10;
+const canvas = document.getElementById('canvas'), zlayer = document.getElementById('zoom-layer'), svgG = document.getElementById('svg-g');
+const ctxPan = document.getElementById('ctx'), addForm = document.getElementById('addForm'), lctxPan = document.getElementById('lctx'), toastEl = document.getElementById('toast');
+const rodFilter = document.getElementById('rod-filter'), showSpousesChk = document.getElementById('show-spouses');
+
+let persons = {}, marrs = {}, mnodes = {};
+let parentChildLinks = [];
+
+let prevPath = null, dragSt = null, zIdx = 20, camK = 1, camX = 0, camY = 0, pendDel = null;
+let singleParentSrc = null, singleMarriageSrc = null; 
+
+let undoStack = [], redoStack = [], snapBefore = null, historyDisabled = false;
+
+const uid = () => Math.random().toString(36).slice(2,8);
+const esc = s => (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const toast = (t,ms=1900) => { toastEl.textContent=t; toastEl.classList.add('show'); clearTimeout(toastEl._t); toastEl._t = setTimeout(()=>toastEl.classList.remove('show'), ms); };
+const cH = p => (p.el && p.el.offsetHeight) ? p.el.offsetHeight : CH;
+const c2w = (cx,cy) => { const r=canvas.getBoundingClientRect(); return {x:(cx-r.left-camX)/camK, y:(cy-r.top-camY)/camK}; };
+
+canvas.addEventListener('pointerdown', e => {
+  if (e.target.closest('.card') || e.target.closest('.marriage-node') || e.target.closest('.ln-hit')) return;
+  ctxPan.style.display = 'none'; lctxPan.style.display = 'none'; pendDel = null;
+  document.querySelectorAll('.single-active').forEach(c => c.classList.remove('single-active'));
+  singleParentSrc = null; singleMarriageSrc = null;
+});
+
+const zoom = d3.zoom().scaleExtent([0.05,4])
+  .filter(e => {
+    if (e.type === 'wheel') return e.shiftKey;
+    if (e.target.closest('.card') || e.target.closest('.marriage-node') || e.target.closest('.ln-hit')) return false;
+    return e.button === 0 || e.pointerType === 'touch' || (e.type && e.type.startsWith('touch'));
+  })
+  .on('zoom',({transform:t})=>{ camK=t.k; camX=t.x; camY=t.y; zlayer.style.transform=`translate(${t.x}px,${t.y}px) scale(${t.k})`; svgG.setAttribute('transform',`translate(${t.x},${t.y}) scale(${t.k})`); });
+d3.select(canvas).call(zoom).on('dblclick.zoom',null);
+
+function fitToScreen() {
+  const vis = getVisible();
+  const allX=[], allY=[];
+  vis.p.forEach(id=>{ const p=persons[id]; allX.push(p.x-CW/2, p.x+CW/2); allY.push(p.y-CH/2, p.y+CH/2); });
+  if(!allX.length) return d3.select(canvas).transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(canvas.clientWidth/2, canvas.clientHeight/3).scale(1));
+  const minX=Math.min(...allX), maxX=Math.max(...allX), minY=Math.min(...allY), maxY=Math.max(...allY);
+  const scale = Math.max(0.05, Math.min(4, Math.min((canvas.clientWidth-120)/(maxX-minX||1), (canvas.clientHeight-120)/(maxY-minY||1))));
+  const tx = canvas.clientWidth/2 - scale*(minX+(maxX-minX)/2), ty = canvas.clientHeight/2 - scale*(minY+(maxY-minY)/2);
+  d3.select(canvas).transition().duration(420).call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale));
+}
+document.getElementById('btn-center').onclick = fitToScreen;
+
+function setP(p)  { if(!p.el) return; p.el.style.left=(p.x-CW/2)+'px'; p.el.style.top=(p.y-cH(p)/2)+'px'; }
+function setMn(m) { if(!m.el) return; m.el.style.left=(m.x-17)+'px'; m.el.style.top=(m.y-17)+'px'; }
+function aPt(p,side) { const h=cH(p); return side==='top'?{x:p.x,y:p.y-h/2}:side==='bottom'?{x:p.x,y:p.y+h/2}:side==='left'?{x:p.x-CW/2,y:p.y}:{x:p.x+CW/2,y:p.y}; }
+
+function updateRodDropdown() {
+  const cur = rodFilter.value; const map = {}; 
+  Object.values(persons).forEach(p => {
+    if(!p.rod) return; const key = (p.rod||'').trim().toLowerCase();
+    if(!map[key]) map[key] = {label: p.rod.trim(), count:0};
+    map[key].count++;
+  });
+  rodFilter.innerHTML = '';
+  const total = Object.keys(persons).length;
+  const allOpt = document.createElement('option'); allOpt.value='all'; allOpt.textContent = `Все ветви (${total})`; rodFilter.appendChild(allOpt);
+  Object.keys(map).sort().forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = `${map[k].label} (${map[k].count})`; rodFilter.appendChild(o); });
+  rodFilter.value = (cur && (cur==='all' || map[cur])) ? cur : 'all';
+}
+
+function getVisible() {
+  const active = rodFilter.value, showSpouse = showSpousesChk.checked;
+  const vp = new Set(), vm = new Set(), pc = new Set();
+  const normRod = s => (s||'').trim().toLowerCase();
+  if(active === 'all') {
+    Object.keys(persons).forEach(k=>vp.add(k)); Object.keys(marrs).forEach(k=>vm.add(k)); parentChildLinks.forEach(pcl=>pc.add(pcl.id));
+    return { p: vp, m: vm, pc };
+  }
+  Object.values(persons).forEach(p => { if(normRod(p.rod) === active) vp.add(p.id); });
+  Object.values(marrs).forEach(m => {
+    const hasA = vp.has(m.idA), hasB = m.idB ? vp.has(m.idB) : false;
+    if(hasA || hasB) { vm.add(m.id); if(showSpouse) { if(m.idA) vp.add(m.idA); if(m.idB) vp.add(m.idB); } }
+  });
+  parentChildLinks.forEach(pcl => {
+    if(vp.has(pcl.parent) || vp.has(pcl.child)) {
+      pc.add(pcl.id);
+      if(showSpouse) {
+        Object.values(marrs).forEach(m=>{ if(m.idA===pcl.parent && m.idB) vp.add(m.idB); if(m.idB===pcl.parent && m.idA) vp.add(m.idA); });
+      }
+    }
+  });
+  return { p: vp, m: vm, pc };
+}
+
+rodFilter.addEventListener('change', () => { applyVisibility(); autoLayout(); });
+showSpousesChk.addEventListener('change', () => { applyVisibility(); autoLayout(); });
+
+function applyVisibility() {
+  const vis = getVisible();
+  Object.values(persons).forEach(p => { if(vis.p.has(p.id)) { p.el.classList.remove('filtered'); setP(p); } else p.el.classList.add('filtered'); });
+  Object.values(mnodes).forEach(n => { const isVis = Object.values(marrs).some(m => m.mnId === n.id && vis.m.has(m.id)); if(isVis) { n.el.classList.remove('filtered'); setMn(n); } else n.el.classList.add('filtered'); });
+  drawLines();
+}
+
+/* --- НОВАЯ СИММЕТРИЧНАЯ ФИЗИКА ВЫРАВНИВАНИЯ --- */
+function autoLayout() {
+  const vis = getVisible(); const ids = Array.from(vis.p);
+  if(!ids.length) return;
+
+  const parents = {}, children = {}, spouses = {};
+  ids.forEach(id => { parents[id]=new Set(); children[id]=new Set(); spouses[id]=new Set(); });
+  const families = [];
+
+  Object.values(marrs).forEach(m => {
+    if(!vis.m.has(m.id)) return;
+    const a = m.idA, b = m.idB; const famKids = (m.children || []).filter(c => vis.p.has(c));
+    if (a && vis.p.has(a) && b && vis.p.has(b)) {
+      spouses[a].add(b); spouses[b].add(a);
+      families.push({ parents: [a, b], children: famKids, mId: m.id });
+    } else if (a && vis.p.has(a)) families.push({ parents: [a], children: famKids, mId: m.id });
+      else if (b && vis.p.has(b)) families.push({ parents: [b], children: famKids, mId: m.id });
+    famKids.forEach(c => {
+      if(a && vis.p.has(a)) { parents[c].add(a); children[a].add(c); }
+      if(b && vis.p.has(b)) { parents[c].add(b); children[b].add(c); }
+    });
+  });
+
+  parentChildLinks.forEach(pcl => {
+    if(!vis.p.has(pcl.parent) || !vis.p.has(pcl.child)) return;
+    parents[pcl.child].add(pcl.parent); children[pcl.parent].add(pcl.child);
+    let found = families.find(f => f.parents.includes(pcl.parent) && f.parents.length === 1 && f.mId === null);
+    if (!found) { found = { parents: [pcl.parent], children: [], mId: null }; families.push(found); }
+    if (!found.children.includes(pcl.child)) found.children.push(pcl.child);
+  });
+
+  const level = {};
+  ids.forEach(id => level[id] = null);
+  ids.forEach(startId => {
+      if (level[startId] !== null) return;
+      level[startId] = 0;
+      let changed = true, iter = 0;
+      while(changed && iter < 100){
+          changed = false; iter++;
+          ids.forEach(u => {
+              if (level[u] === null) return;
+              children[u].forEach(v => { if (level[v] === null || level[v] < level[u] + 1) { level[v] = level[u] + 1; changed = true; } });
+              parents[u].forEach(p => { if (level[p] === null || level[p] > level[u] - 1) { level[p] = level[u] - 1; changed = true; } });
+              spouses[u].forEach(s => { 
+                  if (level[s] === null || level[s] < level[u]) { level[s] = level[u]; changed = true; }
+                  else if (level[u] < level[s]) { level[u] = level[s]; changed = true; }
+              });
+          });
+      }
+  });
+
+  const layers = {};
+  ids.forEach(id => { (layers[level[id]] = layers[level[id]] || []).push(id); });
+  const minL = Math.min(...Object.keys(layers).map(Number)), maxL = Math.max(...Object.keys(layers).map(Number));
+
+  const rowY = {}; let curY = 0;
+  for(let g=minL; g<=maxL; g++){
+    let maxH = CH; (layers[g]||[]).forEach(id => maxH = Math.max(maxH, cH(persons[id])));
+    rowY[g] = curY + maxH/2; curY += maxH + GY;
+  }
+  ids.forEach(id => persons[id].y = rowY[level[id]]);
+  
+  // Даем карточкам стартовый X, если его нет
+  ids.forEach(id => { if (typeof persons[id].x !== 'number' || isNaN(persons[id].x)) persons[id].x = 0; });
+
+  // Симметричная физическая симуляция (250 шагов для плавности и стабильности)
+  for (let step = 0; step < 250; step++) {
+    
+    // 1. Притяжение супругов (жесткая связка)
+    Object.values(marrs).forEach(m => {
+      if(m.idA && m.idB && vis.p.has(m.idA) && vis.p.has(m.idB)) {
+        let p1 = persons[m.idA], p2 = persons[m.idB];
+        let left = p1.x < p2.x ? p1 : p2;
+        let right = p1.x < p2.x ? p2 : p1;
+        if (p1.gender === 'F' && p2.gender === 'M') { left = p2; right = p1; } // Мужчина слева (по желанию)
+        
+        let center = (left.x + right.x) / 2; 
+        left.x = center - (CW + 40)/2; 
+        right.x = center + (CW + 40)/2;
+      }
+    });
+
+    // 2. Притяжение Родители <-> Дети
+    families.forEach(fam => {
+      let pIds = fam.parents.filter(p => vis.p.has(p)), cIds = fam.children.filter(c => vis.p.has(c));
+      if (pIds.length === 0 || cIds.length === 0) return;
+      
+      let pCenter = pIds.reduce((sum, id) => sum + persons[id].x, 0) / pIds.length;
+      let cCenter = cIds.reduce((sum, id) => sum + persons[id].x, 0) / cIds.length;
+      
+      let force = (cCenter - pCenter) * 0.1; // Сила пружины
+      
+      pIds.forEach(id => persons[id].x += force / pIds.length); 
+      cIds.forEach(id => persons[id].x -= force / cIds.length);
+
+      // Слегка расталкиваем братьев/сестер заранее, чтобы помочь алгоритму коллизий
+      cIds.sort((a,b) => persons[a].x - persons[b].x);
+      for(let i=0; i<cIds.length-1; i++){
+          let c1 = persons[cIds[i]], c2 = persons[cIds[i+1]];
+          if(c2.x - c1.x < 10) { c1.x -= 10; c2.x += 10; }
+      }
+    });
+
+    // 3. Симметричное устранение наложений (Sweep)
+    for(let g=minL; g<=maxL; g++){
+        let row = layers[g] || [];
+        row.sort((a,b) => persons[a].x - persons[b].x);
+        for(let i=0; i<row.length-1; i++){
+            let p1 = persons[row[i]], p2 = persons[row[i+1]];
+            let isSpouse = spouses[row[i]] && spouses[row[i]].has(row[i+1]);
+            let sharedFam = families.some(f => f.children.includes(row[i]) && f.children.includes(row[i+1]));
+            
+            // Задаем минимальную дистанцию в зависимости от родства
+            let requiredGap = isSpouse ? (CW + 40) : (sharedFam ? (CW + 60) : (CW + 120));
+            
+            let dist = p2.x - p1.x;
+            if (dist < requiredGap) {
+                let overlap = requiredGap - dist;
+                let push = overlap / 2; // Толкаем обоих симметрично!
+                p1.x -= push;
+                p2.x += push;
+            }
+        }
+    }
+  }
+
+  // Центрируем всё дерево, чтобы оно не "уползало" в бесконечность
+  let minX = Infinity, maxX = -Infinity;
+  ids.forEach(id => {
+      if(persons[id].x < minX) minX = persons[id].x;
+      if(persons[id].x > maxX) maxX = persons[id].x;
+  });
+  let shiftX = - (minX + maxX) / 2;
+  ids.forEach(id => persons[id].x += shiftX);
+
+  // Синхронизация точек брака
+  Object.values(marrs).forEach(m => {
+    if(!(m && m.mnId && mnodes[m.mnId])) return;
+    if(!vis.m.has(m.id)) return;
+    const mn = mnodes[m.mnId], pA = persons[m.idA], pB = m.idB ? persons[m.idB] : null;
+    if(mn && pA) { mn.x = pB ? (pA.x + pB.x)/2 : pA.x; mn.y = pB ? (pA.y + pB.y)/2 : pA.y + CH/2 + 25; setMn(mn); }
+  });
+
+  ids.forEach(id => setP(persons[id]));
+  setTimeout(drawLines, 10);
+}
+
+function hookHit(hitEl, targetId) {
+  hitEl.style.pointerEvents = 'stroke';
+  hitEl.onmouseenter = () => { const t = document.getElementById(targetId); if(t) t.classList.add('ln-hi'); };
+  hitEl.onmouseleave = () => { const t = document.getElementById(targetId); if(t) t.classList.remove('ln-hi'); };
+  
+  const openLineCtx = e => {
+    e.preventDefault(); e.stopPropagation(); 
+    pendDel = {type: hitEl.dataset.lt, mid: hitEl.dataset.mid, cid: hitEl.dataset.cid}; 
+    lctxPan.style.display='flex';
+    lctxPan.style.left=e.clientX+'px'; lctxPan.style.top=e.clientY+'px'; 
+  };
+  hitEl.oncontextmenu = openLineCtx; hitEl.onclick = openLineCtx;
+}
+
+function elbow(x1,y1,x2,y2){
+  if(Math.abs(x1-x2)<1) return `M${x1} ${y1}L${x2} ${y2}`;
+  const my = (y1+y2)/2, dx=x2-x1, sx=dx>0?1:-1, r=Math.min(R, Math.abs(dx)/2, Math.abs(my-y1), Math.abs(y2-my));
+  return `M${x1} ${y1}L${x1} ${my-r}Q${x1} ${my} ${x1+sx*r} ${my}L${x2-sx*r} ${my}Q${x2} ${my} ${x2} ${my+r}L${x2} ${y2}`;
+}
+
+function drawLines() {
+  const vis = getVisible(), lines = [];
+  Object.values(marrs).forEach(m => {
+    if(!vis.m.has(m.id)) return;
+    const pA = persons[m.idA], pB = m.idB ? persons[m.idB] : null, mn = mnodes[m.mnId];
+    if(!mn || !pA) return;
+
+    if(pB) {
+      const left = pA.x < pB.x ? pA : pB, right = pA.x < pB.x ? pB : pA;
+      const d = `M${left.x+CW/2} ${mn.y}L${mn.x} ${mn.y}M${mn.x} ${mn.y}L${right.x-CW/2} ${mn.y}`;
+      const idVis = `mar_v_${m.id}`, idHit = `mar_h_${m.id}`;
+      lines.push({id: idVis, d, cls: 'ln ln-mar'});
+      lines.push({id: idHit, d, cls: 'ln-hit', hit: true, tid: idVis, type: 'mar', mid: m.id});
+    }
+
+    (m.children||[]).forEach(cid => {
+      if(!vis.p.has(cid)) return;
+      const c = persons[cid]; if(!c) return;
+      if(c.y - cH(c)/2 <= mn.y) return;
+      const d = elbow(mn.x, mn.y, c.x, c.y - cH(c)/2);
+      const idVis = `kin_v_${m.id}_${cid}`, idHit = `kin_h_${m.id}_${cid}`;
+      lines.push({id: idVis, d, cls: 'ln ln-kin'});
+      lines.push({id: idHit, d, cls: 'ln-hit', hit: true, tid: idVis, type: 'kid', mid: m.id, cid: cid});
+    });
+  });
+
+  parentChildLinks.forEach(pcl => {
+    if(!vis.p.has(pcl.parent) || !vis.p.has(pcl.child)) return;
+    const p = persons[pcl.parent], c = persons[pcl.child]; if(!p || !c) return;
+    const start = {x: p.x, y: p.y + cH(p)/2}, end = {x: c.x, y: c.y - cH(c)/2};
+    const d = elbow(start.x, start.y, end.x, end.y);
+    const idVis = `pc_v_${pcl.id}`, idHit = `pc_h_${pcl.id}`;
+    lines.push({id: idVis, d, cls: 'ln ln-kin'});
+    lines.push({id: idHit, d, cls: 'ln-hit', hit: true, tid: idVis, type: 'pc', mid: pcl.id, cid: pcl.child});
+  });
+
+  const paths = d3.select(svgG).selectAll('path.dyn').data(lines, d => d.id);
+  const enter = paths.enter().append('path').attr('class', d => `dyn ${d.cls}`).attr('id', d => d.id).attr('d', d => d.d).style('opacity', 0);
+  enter.filter(d => d.hit).each(function(d){ this.dataset.lt = d.type; this.dataset.mid = d.mid; if(d.cid) this.dataset.cid = d.cid; hookHit(this, d.tid); });
+  enter.transition().duration(400).style('opacity', 1);
+  paths.transition().duration(400).attr('d', d => d.d).style('opacity', 1);
+  paths.exit().transition().duration(400).style('opacity', 0).remove();
+}
+
+function createPerson(data) {
+  const p = { id: data.id || ('p_'+uid()), x: data.x||0, y: data.y||0, first: data.first||'', last: data.last||'', rod: (data.rod||'').trim(), city: data.city||'', dob: data.dob||'', gender: data.gender||'' };
+  persons[p.id] = p;
+  const el = document.createElement('div'); el.className = 'card'; el.dataset.id = p.id; el.style.zIndex = ++zIdx;
+  el.innerHTML = `<div class="name"></div><div class="meta"></div>
+    <div class="person-anchor anchor-top" data-anchor="top"><span class="anchor-dot"></span></div>
+    <div class="person-anchor anchor-bottom" data-anchor="bottom"><span class="anchor-dot"></span></div>
+    <div class="person-anchor anchor-left" data-anchor="left"><span class="anchor-dot"></span></div>
+    <div class="person-anchor anchor-right" data-anchor="right"><span class="anchor-dot"></span></div>`;
+  zlayer.appendChild(el); p.el = el;
+  renderCard(p);
+  el.addEventListener('contextmenu', ev => ev.preventDefault());
+  el.querySelectorAll('.person-anchor').forEach(a => a.addEventListener('pointerdown', ev => { ev.stopPropagation(); startConn(ev, 'person', p.id, a.dataset.anchor); }, true));
+  makeDrag(el, p); updateRodDropdown(); return p;
+}
+
+function renderCard(p){
+  p.el.querySelector('.name').innerHTML = `${esc(p.first)} ${esc(p.last)}`.trim();
+  p.el.querySelector('.meta').innerHTML = (p.rod?`<div class="rod">${esc(p.rod)}</div>`:'') + (p.city?esc(p.city):'') + (p.dob?(p.city?' · ':'')+esc(p.dob):'');
+  setP(p); applyVisibility();
+}
+
+function delPerson(id) {
+  const p = persons[id]; if(!p) return;
+  if(p.el) p.el.remove(); delete persons[id];
+  for(const mid in marrs){
+    const m = marrs[mid];
+    if(m.idA === id || m.idB === id){ if(mnodes[m.mnId]) { mnodes[m.mnId].el.remove(); delete mnodes[m.mnId]; } delete marrs[mid]; } 
+    else { m.children = m.children.filter(c => c !== id); }
+  }
+  parentChildLinks = parentChildLinks.filter(pcl => pcl.parent !== id && pcl.child !== id);
+  updateRodDropdown(); applyVisibility(); toast('Удалено');
+}
+
+function makeDrag(el, p) {
+  el.addEventListener('pointerdown', e => {
+    if(e.target.closest('.person-anchor') || (e.button !== 0 && e.pointerType === 'mouse')) return;
+    e.stopPropagation(); el.setPointerCapture(e.pointerId); el.style.zIndex = ++zIdx; el.style.transition = 'none';
+    const sx=e.clientX, sy=e.clientY, ix=p.x, iy=p.y;
+    let moved = false; const before = ser();
+    
+    const mv = ev => {
+      if (Math.abs(ev.clientX - sx) > 5 || Math.abs(ev.clientY - sy) > 5) moved = true;
+      p.x=ix+(ev.clientX-sx)/camK; p.y=iy+(ev.clientY-sy)/camK; setP(p); syncMn(p.id); drawLines();
+    };
+    
+    const up = ev => {
+      el.releasePointerCapture(e.pointerId); el.style.transition = '';
+      window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
+      if(moved) {
+        const after=ser(); 
+        if(JSON.stringify(before)!==JSON.stringify(after)) { snapBefore = before; commitSnapshotAfter('move'); }
+      } else {
+        if(singleMarriageSrc) {
+            takeSnapshotBefore('kid'); addChild(singleMarriageSrc, p.id); commitSnapshotAfter('kid');
+            document.querySelectorAll('.single-active').forEach(c => c.classList.remove('single-active')); singleMarriageSrc = null;
+        } else if(singleParentSrc) {
+          if(singleParentSrc === p.id) { singleParentSrc=null; el.classList.remove('single-active'); toast('Отменено'); }
+          else {
+            takeSnapshotBefore('singleParent'); createParentChild(singleParentSrc, p.id); commitSnapshotAfter('singleParent');
+            document.querySelectorAll('.single-active').forEach(c => c.classList.remove('single-active')); singleParentSrc = null;
+          }
+        } else { openEdit(p.id, ev.clientX, ev.clientY); }
+      }
+    };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  });
+}
+
+function syncMn(pid) {
+  Object.values(marrs).forEach(m=>{
+    if(m.idA!==pid && m.idB!==pid) return;
+    const mn=mnodes[m.mnId], pA=persons[m.idA], pB=m.idB?persons[m.idB]:null;
+    if(mn && pA) { mn.x=pB?(pA.x+pB.x)/2:pA.x; mn.y=pB?(pA.y+pB.y)/2:pA.y+CH/2+25; setMn(mn); mn.el.style.transition='none'; }
+  });
+}
+
+function startConn(ev, fType, id, anchor) {
+  ev.stopPropagation(); ev.preventDefault(); dragSt = {fType, id, anchor};
+  let moved = false; const sx = ev.clientX, sy = ev.clientY;
+  
+  const mv = e => { 
+    if (!moved && (Math.abs(e.clientX - sx) > 5 || Math.abs(e.clientY - sy) > 5)) {
+        moved = true;
+        prevPath = document.createElementNS('http://www.w3.org/2000/svg','path'); 
+        prevPath.setAttribute('class','ln ln-pre'); svgG.appendChild(prevPath);
+    }
+    if (moved && dragSt) {
+        const w=c2w(e.clientX, e.clientY); let s=dragSt.fType==='person'?aPt(persons[dragSt.id],dragSt.anchor):mnodes[dragSt.id]; 
+        prevPath.setAttribute('d', `M${s.x} ${s.y}L${w.x} ${w.y}`);
+    }
+  };
+  const up = e => {
+    window.removeEventListener('pointermove',mv); window.removeEventListener('pointerup',up);
+    if(prevPath){ prevPath.remove(); prevPath=null; }
+    const saved=dragSt; dragSt=null;
+    
+    if (!moved) {
+        if (saved.fType === 'marriage') {
+            singleParentSrc = null; singleMarriageSrc = saved.id;
+            document.querySelectorAll('.single-active').forEach(c => c.classList.remove('single-active'));
+            if (mnodes[saved.id].el) mnodes[saved.id].el.classList.add('single-active');
+            toast('Нажмите на карточку ребенка');
+        }
+        return;
+    }
+
+    const all = document.elementsFromPoint(e.clientX, e.clientY);
+    const aEl = all.map(el=>el.closest?.('.person-anchor')).find(Boolean), cEl = all.map(el=>el.closest?.('.card')).find(Boolean);
+    if(saved.fType==='person' && aEl) {
+      const p2=aEl.closest('.card')?.dataset.id;
+      if(p2 && p2!==saved.id){ takeSnapshotBefore('mar'); createMarr(saved.id, p2); commitSnapshotAfter('mar'); }
+    }
+    else if(saved.fType==='marriage' && cEl) { takeSnapshotBefore('kid'); addChild(saved.id, cEl.dataset.id); commitSnapshotAfter('kid'); }
+  };
+  window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up);
+}
+zlayer.addEventListener('pointerdown', e => { const mnEl=e.target.closest('.marriage-node'); if(mnEl && e.button===0) startConn(e, 'marriage', mnEl.dataset.id, null); });
+
+function createMarr(aId, bId, childId=null) {
+  if(!bId && childId) { createParentChild(aId, childId); return; }
+  if(bId) { for(const k in marrs){ const m=marrs[k]; if((m.idA===aId&&m.idB===bId)||(m.idA===bId&&m.idB===aId)){ toast('Уже в браке'); return; } } }
+  const mid='m_'+uid(), nid='mn_'+uid(), pA=persons[aId], pB=bId?persons[bId]:null;
+  marrs[mid] = {id:mid, idA:aId, idB:bId, children:childId?[childId]:[], mnId:nid};
+  mnodes[nid] = {id:nid, x:pB?(pA.x+pB.x)/2:pA.x, y:pB?(pA.y+pB.y)/2:pA.y+CH/2+25};
+  const el = document.createElement('div'); el.className='marriage-node'; el.dataset.id=nid; el.innerHTML='<div class="marriage-dot"></div>'; zlayer.appendChild(el); mnodes[nid].el=el;
+  setMn(mnodes[nid]); applyVisibility(); toast(bId?'Брак добавлен':'Связь создана');
+}
+
+function createParentChild(parentId, childId) {
+  if(parentId === childId) { toast('Ошибка: нельзя связать сам с собой'); return; }
+  const isCycle = (function checkCur(p, target){
+    const direct = parentChildLinks.find(l => l.parent === p && l.child === target);
+    if(direct) return true;
+    const parentsOfP = parentChildLinks.filter(l=>l.child===p).map(l=>l.parent);
+    for(const pp of parentsOfP) if(checkCur(pp, target)) return true;
+    return false;
+  })(childId, parentId);
+  if(isCycle) { toast('Ошибка: цикличность'); return; }
+  if(parentChildLinks.some(l=>l.parent===parentId && l.child===childId)) { toast('Связь уже есть'); return; }
+  parentChildLinks.push({id:'pc_'+uid(), parent:parentId, child:childId});
+  applyVisibility(); toast('Родитель добавлен');
+}
+
+function addChild(mnId, childId) {
+  const rec = Object.values(marrs).find(m => m.mnId === mnId); if(!rec) return;
+  if(rec.idA===childId || rec.idB===childId){ toast('Ошибка: цикличность'); return; }
+  if(!rec.children.includes(childId)) { rec.children.push(childId); applyVisibility(); toast('Ребёнок добавлен'); }
+}
+
+document.getElementById('lctx-del').onclick = () => {
+  if(!pendDel){ lctxPan.style.display='none'; return; }
+  takeSnapshotBefore('delLine'); const {type, mid, cid} = pendDel;
+  if(type === 'mar') { const m = marrs[mid]; if(m) { if(mnodes[m.mnId]){ mnodes[m.mnId].el.remove(); delete mnodes[m.mnId]; } delete marrs[mid]; toast('Удалено'); } } 
+  else if(type === 'kid') { const m = marrs[mid]; if(m){ m.children = m.children.filter(c=>c!==cid); toast('Связь удалена'); } } 
+  else if(type === 'pc') { parentChildLinks = parentChildLinks.filter(l=>l.id !== mid); toast('Связь удалена'); }
+  applyVisibility(); commitSnapshotAfter('delLine'); lctxPan.style.display='none'; pendDel=null;
+};
+document.getElementById('lctx-can').onclick = () => { lctxPan.style.display='none'; pendDel=null; };
+
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault(); lctxPan.style.display='none'; 
+  const card=e.target.closest('.card');
+  if(card){ openEdit(card.dataset.id, e.clientX, e.clientY); return; }
+  addForm.reset(); addForm.id.value=''; document.getElementById('ctx-title').textContent='Новый человек'; 
+  document.getElementById('ctx-del').style.display='none'; document.getElementById('ctx-single').style.display='none';
+  const w=c2w(e.clientX, e.clientY); ctxPan.dataset.wx=w.x; ctxPan.dataset.wy=w.y; 
+  ctxPan.style.left=e.clientX+'px'; ctxPan.style.top=e.clientY+'px'; ctxPan.style.display='block';
+});
+
+function openEdit(id, cx, cy) {
+  const p=persons[id]; if(!p) return;
+  addForm.id.value=p.id; addForm.first.value=p.first; addForm.last.value=p.last; addForm.gender.value=p.gender||''; addForm.rod.value=p.rod||''; addForm.city.value=p.city||''; addForm.dob.value=p.dob||'';
+  document.getElementById('ctx-title').textContent='Редактировать'; 
+  document.getElementById('ctx-del').style.display='block'; document.getElementById('ctx-single').style.display='block';
+  ctxPan.style.left=cx+'px'; ctxPan.style.top=cy+'px'; ctxPan.style.display='block';
+}
+
+document.getElementById('ctx-single').onclick = () => {
+    singleParentSrc = addForm.id.value;
+    const cardEl = persons[singleParentSrc]?.el;
+    if(cardEl) cardEl.classList.add('single-active');
+    ctxPan.style.display = 'none';
+    toast('Нажмите на карточку ребенка');
+};
+
+document.getElementById('ctx-cancel').onclick = () => ctxPan.style.display='none';
+document.getElementById('ctx-del').onclick = () => { takeSnapshotBefore('del'); delPerson(addForm.id.value); commitSnapshotAfter('del'); ctxPan.style.display='none'; };
+addForm.onsubmit = e => {
+  e.preventDefault(); const fd=new FormData(addForm), id=addForm.id.value;
+  const d={first:fd.get('first'), last:fd.get('last'), gender:fd.get('gender'), rod:(fd.get('rod')||'').trim(), city:fd.get('city'), dob:fd.get('dob')};
+  if(id&&persons[id]) { takeSnapshotBefore('edit'); Object.assign(persons[id],d); renderCard(persons[id]); commitSnapshotAfter('edit'); toast('Обновлено'); }
+  else { takeSnapshotBefore('add'); d.id='p_'+uid(); d.x=parseFloat(ctxPan.dataset.wx)||0; d.y=parseFloat(ctxPan.dataset.wy)||0; createPerson(d); commitSnapshotAfter('add'); toast('Добавлено'); }
+  ctxPan.style.display='none';
+};
+
+function ser() { return { p:Object.fromEntries(Object.entries(persons).map(([k,p])=>[k,{id:p.id,x:p.x,y:p.y,first:p.first,last:p.last,rod:p.rod,city:p.city,dob:p.dob,gender:p.gender}])), m:Object.fromEntries(Object.entries(marrs).map(([k,m])=>[k,{id:m.id,idA:m.idA,idB:m.idB,children:m.children,mnId:m.mnId}])), n:Object.fromEntries(Object.entries(mnodes).map(([k,n])=>[k,{id:n.id,x:n.x,y:n.y}])), pc: parentChildLinks.slice() }; }
+function deser(d) {
+  Object.values(persons).forEach(p=>p.el?.remove()); Object.values(mnodes).forEach(n=>n.el?.remove());
+  persons={}; marrs={}; mnodes={}; zIdx=20; parentChildLinks=[];
+  if(d.p) Object.values(d.p).forEach(p=>createPerson(p));
+  if(d.n) Object.values(d.n).forEach(n=>{ const el=document.createElement('div'); el.className='marriage-node'; el.dataset.id=n.id; el.innerHTML='<div class="marriage-dot"></div>'; zlayer.appendChild(el); mnodes[n.id]={id:n.id, x:n.x, y:n.y, el}; setMn(mnodes[n.id]); });
+  if(d.m) Object.values(d.m).forEach(m=>{ marrs[m.id]={...m, children:m.children||[]}; if(!mnodes[m.mnId]) { const pA=persons[m.idA], pB=m.idB?persons[m.idB]:null; const el=document.createElement('div'); el.className='marriage-node'; el.dataset.id=m.mnId; el.innerHTML='<div class="marriage-dot"></div>'; zlayer.appendChild(el); mnodes[m.mnId]={id:m.mnId, x:pB?(pA.x+pB.x)/2:pA.x, y:pB?(pA.y+pB.y)/2:pA.y+30, el}; setMn(mnodes[m.mnId]); } });
+  if(d.pc) parentChildLinks = d.pc.map(x=>({...x}));
+  updateRodDropdown(); applyVisibility();
+}
+
+document.getElementById('btn-export').onclick = () => { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(ser())], {type:'application/json'})); a.download='genealogy.json'; a.click(); };
+document.getElementById('btn-import').onclick = () => document.getElementById('file-input').click();
+document.getElementById('file-input').onchange = e => { const r=new FileReader(); r.onload=ev=>{ try{ takeSnapshotBefore('imp'); deser(JSON.parse(ev.target.result)); commitSnapshotAfter('imp'); toast('Загружено'); }catch{alert('Ошибка');} }; r.readAsText(e.target.files[0]); e.target.value=''; };
+
+document.getElementById('btn-theme').onclick = () => { const n=document.documentElement.getAttribute('data-theme')==='light'?'':'light'; n?document.documentElement.setAttribute('data-theme',n):document.documentElement.removeAttribute('data-theme'); localStorage.setItem('family_theme', n||'dark'); };
+window.onload = () => { if(localStorage.getItem('family_theme')==='light') document.documentElement.setAttribute('data-theme','light'); const raw=localStorage.getItem('gen_v4'); if(raw){ try{deser(JSON.parse(raw));}catch(e){} } fitToScreen(); updateHistoryBtn(); };
+window.onbeforeunload = () => { try{ localStorage.setItem('gen_v4', JSON.stringify(ser())); }catch(e){} };
+
+window.onkeydown = e => {
+  if(e.key==='Escape'){ dragSt=null; if(prevPath){prevPath.remove();prevPath=null;} ctxPan.style.display='none'; lctxPan.style.display='none'; pendDel=null; document.querySelectorAll('.single-active').forEach(c=>c.classList.remove('single-active')); singleParentSrc=null; singleMarriageSrc=null; }
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();undo();}
+  if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||(e.shiftKey&&e.key.toLowerCase()==='z'))){e.preventDefault();redo();}
+};
+
+function takeSnapshotBefore(n) { if(!historyDisabled) snapBefore = ser(); }
+function commitSnapshotAfter(n) { if(historyDisabled){snapBefore=null;return;} const a=ser(); if(snapBefore && JSON.stringify(snapBefore)!==JSON.stringify(a)){ undoStack.push({n,b:snapBefore,a}); if(undoStack.length>100)undoStack.shift(); redoStack=[]; updateHistoryBtn(); } snapBefore=null; }
+function updateHistoryBtn() { document.getElementById('btn-undo').disabled=!undoStack.length; document.getElementById('btn-redo').disabled=!redoStack.length; }
+const undo=()=>{ if(!undoStack.length)return; const act=undoStack.pop(); historyDisabled=true; deser(act.b); historyDisabled=false; redoStack.push(act); updateHistoryBtn(); toast('Отменено'); };
+const redo=()=>{ if(!redoStack.length)return; const act=redoStack.pop(); historyDisabled=true; deser(act.a); historyDisabled=false; undoStack.push(act); updateHistoryBtn(); toast('Возвращено'); };
+document.getElementById('btn-undo').onclick = undo; document.getElementById('btn-redo').onclick = redo;
+
+document.getElementById('btn-add').onclick = () => { 
+  addForm.reset(); addForm.id.value=''; document.getElementById('ctx-title').textContent='Новый человек'; 
+  document.getElementById('ctx-del').style.display='none'; document.getElementById('ctx-single').style.display='none';
+  const r=canvas.getBoundingClientRect(); const w=c2w(r.left+r.width/2, r.top+r.height/2); 
+  ctxPan.dataset.wx=w.x; ctxPan.dataset.wy=w.y; 
+  ctxPan.style.left=(r.left+r.width/2+12)+'px'; ctxPan.style.top=(r.top+r.height/2-40)+'px'; 
+  ctxPan.style.display='block'; 
+};
+document.getElementById('btn-align').onclick = () => autoLayout();
+</script>
+</body>
+</html>
