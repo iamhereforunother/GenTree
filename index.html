@@ -4,7 +4,12 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <title>GenTree🤾🏻‍♂️</title>
-  
+
+<!-- Для других браузеров / Android -->
+<meta name="theme-color" content="#0b0b0b">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="my-favicon/favicon-96x96.png" sizes="96x96"/>
 <link rel="icon" type="image/svg+xml" href="my-favicon/favicon.svg"/>
 <link rel="shortcut icon" href="my-favicon/favicon.ico"/>
@@ -14,7 +19,7 @@
 <link rel="manifest" href="my-favicon/site.webmanifest"/>
 
 <link rel="mask-icon" href="my-favicon/favicon.svg" color="#0f1724">
-<meta name="theme-color" content="#0f1724">
+
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 :root{
@@ -60,11 +65,46 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--accent);-webkit-
 .canvas{position:absolute;inset:0;cursor:grab;overflow:hidden;touch-action:none;}
 .canvas:active{cursor:grabbing}
 #zoom-layer{position:absolute;left:0;top:0;width:0;height:0;overflow:visible;transform-origin:0 0; z-index:20;}
+
+/* === iOS26 Safari top/bottom toolbar color fixes ===
+   Эти элементы создают "реальные" тёмные пиксели вверху и внизу страницы,
+   чтобы iOS26 Safari взял нужный цвет тулбара. */
+.safari-top-fix,
+.safari-bottom-fix {
+  position: fixed;
+  left: 0;
+  right: 0;
+  background: #0b0b0b; /* тёмный по умолчанию; будет обновляться из JS при смене темы */
+  z-index: 99999;
+  pointer-events: none; /* не мешает кликам */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* верхняя полоска: высота safe-area + небольшая запасная часть */
+.safari-top-fix {
+  top: 0;
+  height: calc(env(safe-area-inset-top, 0px) + 12px);
+}
+
+/* нижняя полоска: safe-area (для iPhone с вырезом/домой) + запас */
+.safari-bottom-fix {
+  bottom: 0;
+  height: calc(env(safe-area-inset-bottom, 0px) + 12px);
+}
+
+/* Немного уменьшим визуальное влияние в десктопных средах */
+@media (min-width: 1024px) {
+  .safari-top-fix, .safari-bottom-fix { display: none; }
+}
+
 .header{
   position:fixed;left:18px;top:18px;right:18px;z-index:220;
   backdrop-filter:blur(18px) saturate(1.08);
-  background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
-  border:1px solid var(--glass-strong);padding:14px 18px;border-radius:calc(var(--radius-lg) + 6px);
+  /* Явный тёмный фон — чтобы Safari реально видел тёмный пиксель у фиксированного header. */
+  background: linear-gradient(180deg, rgba(11,17,26,0.98), rgba(11,17,26,0.98));
+  border:1px solid rgba(255,255,255,0.03);
+  padding:14px 18px;border-radius:calc(var(--radius-lg) + 6px);
   display:flex;align-items:center;justify-content:space-between;gap:12px;
 }
 .header-left, .header-right {display:flex;gap:12px;align-items:center;}
@@ -201,6 +241,11 @@ path.ln-hi {stroke:var(--line-hi)!important;stroke-width:3.5px!important}
   <div class="toast" id="toast"></div>
 </div>
 <input id="file-input" type="file" accept="application/json" style="display:none"/>
+
+<!-- fixes для iOS26: реальные элементы, видимые для рендерера -->
+<div class="safari-top-fix" aria-hidden="true"></div>
+<div class="safari-bottom-fix" aria-hidden="true"></div>
+
 <script>
 const CW = 260, CH = 105, GX = 60, GY = 120, R = 10;
 const canvas = document.getElementById('canvas'), zlayer = document.getElementById('zoom-layer'), svgG = document.getElementById('svg-g');
@@ -723,8 +768,48 @@ document.getElementById('btn-export').onclick = () => { const a=document.createE
 document.getElementById('btn-import').onclick = () => document.getElementById('file-input').click();
 document.getElementById('file-input').onchange = e => { const r=new FileReader(); r.onload=ev=>{ try{ takeSnapshotBefore('imp'); deser(JSON.parse(ev.target.result)); commitSnapshotAfter('imp'); toast('Загружено'); }catch{alert('Ошибка');} }; r.readAsText(e.target.files[0]); e.target.value=''; };
 
-document.getElementById('btn-theme').onclick = () => { const n=document.documentElement.getAttribute('data-theme')==='light'?'':'light'; n?document.documentElement.setAttribute('data-theme',n):document.documentElement.removeAttribute('data-theme'); localStorage.setItem('family_theme', n||'dark'); };
+/* === Управление темой и синхронизация фиксов для iOS === */
+function updateSafariFixes() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const dark = '#0b0b0b';
+  const light = '#eef3fb'; // можно настроить
+  document.querySelectorAll('.safari-top-fix, .safari-bottom-fix').forEach(el => {
+    el.style.background = isLight ? light : dark;
+  });
+
+  // Также подстраиваем header (на случай, если переменные темы не успели примениться)
+  const hdr = document.querySelector('.header');
+  if (hdr) {
+    if (isLight) {
+      hdr.style.background = 'linear-gradient(180deg, rgba(238,243,251,0.98), rgba(238,243,251,0.98))';
+      hdr.style.border = '1px solid rgba(15,23,42,0.06)';
+    } else {
+      hdr.style.background = 'linear-gradient(180deg, rgba(11,17,26,0.98), rgba(11,17,26,0.98))';
+      hdr.style.border = '1px solid rgba(255,255,255,0.03)';
+    }
+  }
+}
+
+// Обновляем фиксы при загрузке
+window.addEventListener('load', () => {
+  updateSafariFixes();
+  // иногда помогает повторный вызов после небольшого таймаута, чтобы рендерер успел
+  setTimeout(updateSafariFixes, 80);
+});
+
+const btnTheme = document.getElementById('btn-theme');
+btnTheme.onclick = () => {
+  const n=document.documentElement.getAttribute('data-theme')==='light'?'':'light';
+  n?document.documentElement.setAttribute('data-theme',n):document.documentElement.removeAttribute('data-theme');
+  localStorage.setItem('family_theme', n||'dark');
+
+  // Синхронизируем наши фиксы сразу и чуть позже (помогает в ряде iOS26 кейсов)
+  updateSafariFixes();
+  setTimeout(updateSafariFixes, 80);
+};
+
 window.onload = () => { if(localStorage.getItem('family_theme')==='light') document.documentElement.setAttribute('data-theme','light'); const raw=localStorage.getItem('gen_v4'); if(raw){ try{deser(JSON.parse(raw));}catch(e){} } fitToScreen(); updateHistoryBtn(); };
+
 window.onbeforeunload = () => { try{ localStorage.setItem('gen_v4', JSON.stringify(ser())); }catch(e){} };
 
 window.onkeydown = e => {
